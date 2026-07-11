@@ -77,11 +77,16 @@ by another app, the HUD and menu warn you on launch.
 
 - carbon `RegisterEventHotKey` for the global hotkey (no accessibility needed
   for listening)
-- on press: saves your clipboard → synthetic ⌘C via `CGEvent` → sends the
-  selection to `LanguageModelSession` (temperature 0.3, fresh session per
-  rewrite) → pastes the result with ⌘V → restores your clipboard
+- on press: saves your clipboard → synthetic ⌘C via `CGEvent` → runs the
+  selection through a deterministic spellcheck pre-pass → sends it to
+  `LanguageModelSession` (greedy sampling, fresh session per rewrite) →
+  pastes the result with ⌘V → restores your clipboard
 - prompt is framed as `draft: … rewrite:` matching the few-shot examples, so
   the model rewrites your text instead of chatting with it
+- spelling is fixed twice, for different reasons: `NSSpellChecker` catches
+  clear-cut typos deterministically before the model ever sees them (so it
+  can't guess the wrong correction), and the model still catches
+  context-dependent mistakes ("grate" → "great") a dictionary can't
 - a deterministic post-pass restores any shorthand the model expanded
 
 no dependencies, plain swiftpm. relaunching always replaces the previous

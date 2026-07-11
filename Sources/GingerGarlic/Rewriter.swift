@@ -33,13 +33,15 @@ final class Rewriter {
         }
         // Fresh session per rewrite: no context bleed between messages,
         // and the style file can be edited live between presses.
+        let spellFixed = await SpellFix.fix(text)
         let session = LanguageModelSession(instructions: Style.load())
         // "draft:/rewrite:" framing matches the few-shot examples, so the model
         // treats the text as material to rewrite instead of a message to answer
-        // (a bare "hello i am abhi" used to get a chatbot reply).
+        // (a bare "hello i am abhi" used to get a chatbot reply). Greedy
+        // sampling: same draft in, same rewrite out, every time.
         let response = try await session.respond(
-            to: "draft: \(text)\nrewrite:",
-            options: GenerationOptions(temperature: 0.3)
+            to: "draft: \(spellFixed)\nrewrite:",
+            options: GenerationOptions(sampling: .greedy)
         )
         var output = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if output.lowercased().hasPrefix("rewrite:") {
@@ -73,6 +75,10 @@ final class Rewriter {
         ("ngl", ["not gonna lie"]),
         ("rn", ["right now"]),
     ]
+
+    static var protectedShorthand: Set<String> {
+        Set(shorthandExpansions.map(\.short))
+    }
 
     static func restoreShorthand(original: String, output: String) -> String {
         var result = output
