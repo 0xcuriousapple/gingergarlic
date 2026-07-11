@@ -9,6 +9,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastOriginal: String?
     private var lastRewrite: String?
     private var hotkeyDisplay = ""
+    private var corpusCount = 0
+    private var lastStatus = ""
 
     private let idleTitle = "🫚"
     private let busyTitle = "🫚…"
@@ -36,6 +38,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Clipboard.promptForTrust()
         }
         rewriter.prewarm()
+        refreshCorpusCount()
+    }
+
+    private func refreshCorpusCount() {
+        Task { @MainActor in
+            corpusCount = await rewriter.corpus.acceptedCount()
+            rebuildMenu(status: lastStatus)
+        }
     }
 
     private func startupStatus(hotkeyRegistered: Bool = true) -> String {
@@ -49,11 +59,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func rebuildMenu(status: String) {
+        lastStatus = status
         let menu = NSMenu()
 
         let statusLine = NSMenuItem(title: status, action: nil, keyEquivalent: "")
         statusLine.isEnabled = false
         menu.addItem(statusLine)
+
+        let learning = Rewriter.usingAdapter
+            ? "learned: \(corpusCount) pairs + LoRA adapter"
+            : "learned: \(corpusCount) pairs"
+        let learningLine = NSMenuItem(title: learning, action: nil, keyEquivalent: "")
+        learningLine.isEnabled = false
+        menu.addItem(learningLine)
         menu.addItem(.separator())
 
         if lastOriginal != nil {
@@ -124,7 +142,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Menu actions
 
     @objc private func copyOriginal() {
-        if let lastOriginal { Clipboard.set(lastOriginal) }
+        guard let lastOriginal else { return }
+        Clipboard.set(lastOriginal)
+        // Undo is the rejection signal: keep that pair out of the few-shot
+        // pool and flag it for future adapter training.
+        Task { @MainActor in
+            await rewriter.corpus.markLastRejected()
+            refreshCorpusCount()
+        }
     }
 
     @objc private func copyRewrite() {

@@ -12,8 +12,28 @@ final class Rewriter {
         }
     }
 
+    let corpus = Corpus()
+
+    /// A personal LoRA adapter trained with Apple's adapter toolkit, if the
+    /// user has installed one (see scripts/export_training_data.py). Loaded
+    /// once at launch; relaunch after dropping the file in.
+    static let adapterURL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".config/gingergarlic/adapter.fmadapter")
+
+    static let model: SystemLanguageModel = {
+        if FileManager.default.fileExists(atPath: adapterURL.path),
+           let adapter = try? SystemLanguageModel.Adapter(fileURL: adapterURL) {
+            return SystemLanguageModel(adapter: adapter)
+        }
+        return .default
+    }()
+
+    static var usingAdapter: Bool {
+        FileManager.default.fileExists(atPath: adapterURL.path)
+    }
+
     static func availabilityIssue() -> String? {
-        switch SystemLanguageModel.default.availability {
+        switch model.availability {
         case .available:
             return nil
         case .unavailable(let reason):
@@ -23,8 +43,22 @@ final class Rewriter {
 
     /// Loads model resources ahead of the first hotkey press.
     func prewarm() {
-        let session = LanguageModelSession(instructions: Style.load())
+        let session = LanguageModelSession(model: Self.model, instructions: Style.load())
         session.prewarm()
+    }
+
+    /// Style prompt plus retrieved few-shot pairs from the user's own
+    /// accepted rewrites — the "learns from usage" part.
+    private func instructions(for text: String) async -> String {
+        var instructions = Style.load()
+        let examples = await corpus.similar(to: text)
+        if !examples.isEmpty {
+            instructions += "\n\nMore examples of this author's accepted rewrites (match this voice):\n"
+            for example in examples {
+                instructions += "\ndraft: \(example.draft)\nrewrite: \(example.rewrite)\n"
+            }
+        }
+        return instructions
     }
 
     func rewrite(_ text: String) async throws -> String {
@@ -34,7 +68,7 @@ final class Rewriter {
         // Fresh session per rewrite: no context bleed between messages,
         // and the style file can be edited live between presses.
         let spellFixed = await SpellFix.fix(text)
-        let session = LanguageModelSession(instructions: Style.load())
+        let session = LanguageModelSession(model: Self.model, instructions: await instructions(for: text))
         // "draft:/rewrite:" framing matches the few-shot examples, so the model
         // treats the text as material to rewrite instead of a message to answer
         // (a bare "hello i am abhi" used to get a chatbot reply). Greedy
@@ -48,7 +82,11 @@ final class Rewriter {
             output = String(output.dropFirst("rewrite:".count))
                 .trimmingCharacters(in: .whitespaces)
         }
-        return Self.restoreShorthand(original: text, output: output)
+        let result = Self.restoreShorthand(original: text, output: output)
+        if result != text {
+            await corpus.log(draft: text, rewrite: result)
+        }
+        return result
     }
 
     // MARK: - Shorthand protection

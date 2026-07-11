@@ -73,6 +73,34 @@ by another app, the HUD and menu warn you on launch.
 - **edit style prompt** / **change hotkey**
 - **quit**
 
+## it learns your style as you use it
+
+every rewrite is logged as a draft → rewrite pair to
+`~/.config/gingergarlic/corpus.jsonl`. on each hotkey press, the most
+similar past pairs (on-device sentence embeddings, most recent as fallback)
+are injected into the prompt as extra few-shot examples — so the more you
+use it, the more it sounds like you.
+
+pressing **copy original (undo)** marks the last rewrite as rejected: it's
+kept out of the example pool and flagged in the corpus. the menu bar shows
+how many pairs it has learned.
+
+### LoRA adapter (optional, the endgame)
+
+once your corpus is big enough (~200+ accepted pairs), you can train a
+personal LoRA adapter for the on-device model with apple's adapter training
+toolkit:
+
+```sh
+python3 scripts/export_training_data.py   # corpus -> train.jsonl / valid.jsonl
+```
+
+then train with the toolkit (developer.apple.com, search "foundation models
+adapter training toolkit") and drop the result at
+`~/.config/gingergarlic/adapter.fmadapter`. relaunch — the menu will show
+"+ LoRA adapter" and every rewrite now runs through a model fine-tuned on
+your own messages.
+
 ## how it works
 
 - carbon `RegisterEventHotKey` for the global hotkey (no accessibility needed
@@ -87,7 +115,13 @@ by another app, the HUD and menu warn you on launch.
   clear-cut typos deterministically before the model ever sees them (so it
   can't guess the wrong correction), and the model still catches
   context-dependent mistakes ("grate" → "great") a dictionary can't
+- spellchecker guesses are re-ranked by damerau-levenshtein distance: a
+  candidate one edit away overrides a top guess that's two or more edits out
+  ("depoly" → "deploy", not "deeply"), otherwise the dictionary's frequency
+  ranking wins ("tommow" → "tomorrow", not "tommy")
 - a deterministic post-pass restores any shorthand the model expanded
+- every accepted rewrite feeds the corpus that personalizes future rewrites
+  (`Corpus.swift`: NLEmbedding cosine retrieval + recency backfill)
 
 no dependencies, plain swiftpm. relaunching always replaces the previous
 instance, so `open dist/gingergarlic.app` is always safe.
@@ -116,11 +150,12 @@ last.
 
 ## roadmap
 
-- learn from real usage: log accepted rewrites, build a personal corpus
-- retrieval few-shot: pull your most similar past messages as examples per
-  rewrite
+- ~~learn from real usage: log accepted rewrites, build a personal corpus~~ ✅
+- ~~retrieval few-shot: pull your most similar past messages as examples per
+  rewrite~~ ✅
 - LoRA adapter trained on your message history via apple's adapter toolkit —
-  actual "learns your style" instead of prompt engineering
+  export + in-app loading are done, training is on you (needs ~200+ pairs)
+- seed the corpus from a slack/telegram export instead of starting cold
 
 ## license
 

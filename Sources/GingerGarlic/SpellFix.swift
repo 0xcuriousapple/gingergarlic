@@ -36,15 +36,46 @@ enum SpellFix {
             offset = range.location + range.length
             if protected.contains(word.lowercased()) { continue }
             if word.rangeOfCharacter(from: .decimalDigits) != nil { continue }
-            guard let guess = checker.guesses(
+            guard let guesses = checker.guesses(
                 forWordRange: range, in: result, language: "en",
                 inSpellDocumentWithTag: 0
-            )?.first else { continue }
+            ), let top = guesses.first else { continue }
+            // The top guess is frequency-ranked but context-blind and can be
+            // a different word than intended ("depoly" -> "deeply"). A
+            // candidate one edit away (usually a transposition) is almost
+            // always the intended word, so it overrides a top guess that's
+            // two or more edits out ("depoly" -> "deploy"). Otherwise trust
+            // the dictionary's ranking ("tommow" -> "tomorrow", not "tommy").
+            var guess = top
+            if Self.editDistance(word, top) >= 2,
+               let oneEdit = guesses.first(where: { Self.editDistance(word, $0) == 1 }) {
+                guess = oneEdit
+            }
             // the author writes lowercase; don't let guesses introduce caps
             let replacement = word == word.lowercased() ? guess.lowercased() : guess
             result = (result as NSString).replacingCharacters(in: range, with: replacement)
             offset = range.location + (replacement as NSString).length
         }
         return result
+    }
+
+    /// Damerau-Levenshtein: edit distance where a transposition counts as
+    /// one edit, since transpositions are the most common typing mistake.
+    private static func editDistance(_ a: String, _ b: String) -> Int {
+        let s = Array(a.lowercased()), t = Array(b.lowercased())
+        if s.isEmpty || t.isEmpty { return max(s.count, t.count) }
+        var d = [[Int]](repeating: [Int](repeating: 0, count: t.count + 1), count: s.count + 1)
+        for i in 0...s.count { d[i][0] = i }
+        for j in 0...t.count { d[0][j] = j }
+        for i in 1...s.count {
+            for j in 1...t.count {
+                let cost = s[i - 1] == t[j - 1] ? 0 : 1
+                d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+                if i > 1, j > 1, s[i - 1] == t[j - 2], s[i - 2] == t[j - 1] {
+                    d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+                }
+            }
+        }
+        return d[s.count][t.count]
     }
 }
