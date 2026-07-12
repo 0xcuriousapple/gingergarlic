@@ -52,6 +52,23 @@ final class Rewriter {
         session.prewarm()
     }
 
+    /// The spellchecker proposes; the model disposes. Concrete accept/reject
+    /// examples matter more than the rule for a small model — "aws" reads as
+    /// a typo of "was" without them.
+    private static let adjudicateInstructions = """
+
+
+    You may also get SPELLING SUGGESTIONS from a dictionary as word->suggestion. The dictionary is context-blind and flags names, brands, and acronyms it doesn't recognize. Apply a suggestion ONLY when it is clearly a real typo. If the original looks like a name, brand, tech term, or acronym (vpn, aws, api, ssh, mullvad, tailscale), keep the original even if the suggestion is a common word. Never mention the suggestions.
+
+    example — draft: the aws api is down again
+    spelling suggestions: aws->was, api->apt
+    rewrite: the aws api is down again
+
+    example — draft: did u recieve teh msg
+    spelling suggestions: recieve->receive, teh->the
+    rewrite: did u receive the msg
+    """
+
     /// Style prompt + content-free habit profile + retrieved few-shot pairs
     /// from this session's accepted rewrites — the "learns from usage" part.
     private func instructions(for text: String) async -> String {
@@ -66,7 +83,7 @@ final class Rewriter {
                 instructions += "\ndraft: \(example.draft)\nrewrite: \(example.rewrite)\n"
             }
         }
-        return instructions
+        return instructions + Self.adjudicateInstructions
     }
 
     func rewrite(_ text: String) async throws -> String {
@@ -75,14 +92,19 @@ final class Rewriter {
         }
         // Fresh session per rewrite: no context bleed between messages,
         // and the style file can be edited live between presses.
-        let spellFixed = await SpellFix.fix(text)
+        let suggestions = await SpellFix.suggestions(for: text)
+        let suggestionLine = suggestions.isEmpty ? "" :
+            "\nspelling suggestions: " +
+            suggestions.map { "\($0.word)->\($0.guess)" }.joined(separator: ", ")
         let session = LanguageModelSession(model: Self.model, instructions: await instructions(for: text))
         // "draft:/rewrite:" framing matches the few-shot examples, so the model
         // treats the text as material to rewrite instead of a message to answer
         // (a bare "hello i am abhi" used to get a chatbot reply). Greedy
-        // sampling: same draft in, same rewrite out, every time.
+        // sampling: same draft in, same rewrite out, every time. The model
+        // sees the RAW draft plus suggestions, so it keeps "vpn"/"mullvad"
+        // that a blind spell-fix would have mangled.
         let response = try await session.respond(
-            to: "draft: \(spellFixed)\nrewrite:",
+            to: "draft: \(text)\(suggestionLine)\nrewrite:",
             options: GenerationOptions(sampling: .greedy)
         )
         var output = response.content.trimmingCharacters(in: .whitespacesAndNewlines)

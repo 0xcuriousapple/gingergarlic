@@ -130,20 +130,24 @@ off — the adapter keeps the learning.
 
 - carbon `RegisterEventHotKey` for the global hotkey (no accessibility needed
   for listening)
-- on press: saves your clipboard → synthetic ⌘C via `CGEvent` → runs the
-  selection through a deterministic spellcheck pre-pass → sends it to
-  `LanguageModelSession` (greedy sampling, fresh session per rewrite) →
-  pastes the result with ⌘V → restores your clipboard
+- on press: saves your clipboard → synthetic ⌘C via `CGEvent` → asks
+  `NSSpellChecker` for spelling *suggestions* on the raw draft → sends the
+  raw draft plus those suggestions to `LanguageModelSession` (greedy
+  sampling, fresh session per rewrite) → pastes the result with ⌘V →
+  restores your clipboard
 - prompt is framed as `draft: … rewrite:` matching the few-shot examples, so
   the model rewrites your text instead of chatting with it
-- spelling is fixed twice, for different reasons: `NSSpellChecker` catches
-  clear-cut typos deterministically before the model ever sees them (so it
-  can't guess the wrong correction), and the model still catches
-  context-dependent mistakes ("grate" → "great") a dictionary can't
-- spellchecker guesses are re-ranked by damerau-levenshtein distance: a
-  candidate one edit away overrides a top guess that's two or more edits out
-  ("depoly" → "deploy", not "deeply"), otherwise the dictionary's frequency
-  ranking wins ("tommow" → "tomorrow", not "tommy")
+- **the spellchecker suggests, the model decides.** the dictionary is
+  context-blind — it "corrects" names, brands, and acronyms it doesn't know
+  (`vpn`→`von`, `mullvad`→`mulled`, `aws`→`was`). so instead of applying its
+  guesses, we pass them to the model, which sees the original word and only
+  applies genuine typo fixes. real typos still get anchored by the
+  dictionary (so the model can't guess `depoly`→`deeply`), but your proper
+  nouns survive
+- suggested guesses are picked by damerau-levenshtein distance: a candidate
+  one edit away beats a top guess two or more edits out (`depoly`→`deploy`,
+  not `deeply`), otherwise the dictionary's frequency ranking wins
+  (`tommow`→`tomorrow`, not `tommy`)
 - a deterministic post-pass restores any shorthand the model expanded
 - every accepted rewrite personalizes future ones: aggregate habit counters
   (`StyleProfile.swift`) plus in-memory session examples (`Corpus.swift`:
