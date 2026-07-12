@@ -73,33 +73,52 @@ by another app, the HUD and menu warn you on launch.
 - **edit style prompt** / **change hotkey**
 - **quit**
 
-## it learns your style as you use it
+## it learns your style as you use it — without recording you
 
-every rewrite is logged as a draft → rewrite pair to
-`~/.config/gingergarlic/corpus.jsonl`. on each hotkey press, the most
-similar past pairs (on-device sentence embeddings, most recent as fallback)
-are injected into the prompt as extra few-shot examples — so the more you
-use it, the more it sounds like you.
+personalization runs on two mechanisms, neither of which stores what you
+write:
 
-pressing **copy original (undo)** marks the last rewrite as rejected: it's
-kept out of the example pool and flagged in the corpus. the menu bar shows
-how many pairs it has learned.
+- **aggregate style profile** (`~/.config/gingergarlic/profile.json`) —
+  counters only: which shorthand you use (matched against a fixed lexicon,
+  so arbitrary words can never end up in the file), average message length,
+  punctuation habits. it becomes an "observed habits" block in the prompt.
+  no message is reconstructable from it.
+- **session few-shot** — your draft → rewrite pairs are kept in memory while
+  the app runs and used as examples for similar drafts (on-device sentence
+  embeddings). they evaporate on quit.
+
+pressing **copy original (undo)** marks the last rewrite as rejected so it
+never teaches the model. the menu bar shows what's been learned.
+
+## privacy
+
+- everything runs on-device. nothing ever leaves your mac — no cloud, no
+  telemetry, no network calls at all.
+- by default, **nothing you write is stored on disk**. only the aggregate
+  style profile described above is persisted.
+- **save history for LoRA training** (menu toggle, off by default) is the
+  one exception: it writes draft → rewrite pairs to
+  `~/.config/gingergarlic/corpus.jsonl` so you can eventually train a
+  personal adapter. that file is your raw messages in plaintext — opt in
+  knowingly, and **wipe recorded history** in the menu deletes it whenever
+  you want.
 
 ### LoRA adapter (optional, the endgame)
 
-once your corpus is big enough (~200+ accepted pairs), you can train a
-personal LoRA adapter for the on-device model with apple's adapter training
-toolkit:
+training a personal adapter is the one thing that genuinely needs real
+examples, which is why recording exists at all. flip on **save history for
+LoRA training**, use the tool until you have ~200+ accepted pairs, then:
 
 ```sh
 python3 scripts/export_training_data.py   # corpus -> train.jsonl / valid.jsonl
 ```
 
-then train with the toolkit (developer.apple.com, search "foundation models
-adapter training toolkit") and drop the result at
-`~/.config/gingergarlic/adapter.fmadapter`. relaunch — the menu will show
-"+ LoRA adapter" and every rewrite now runs through a model fine-tuned on
-your own messages.
+train with apple's adapter training toolkit (developer.apple.com, search
+"foundation models adapter training toolkit") and drop the result at
+`~/.config/gingergarlic/adapter.fmadapter`. relaunch — the menu shows
+"LoRA ✓" and every rewrite runs through a model fine-tuned on your own
+messages. after training, you can wipe the corpus and turn recording back
+off — the adapter keeps the learning.
 
 ## how it works
 
@@ -120,8 +139,10 @@ your own messages.
   ("depoly" → "deploy", not "deeply"), otherwise the dictionary's frequency
   ranking wins ("tommow" → "tomorrow", not "tommy")
 - a deterministic post-pass restores any shorthand the model expanded
-- every accepted rewrite feeds the corpus that personalizes future rewrites
-  (`Corpus.swift`: NLEmbedding cosine retrieval + recency backfill)
+- every accepted rewrite personalizes future ones: aggregate habit counters
+  (`StyleProfile.swift`) plus in-memory session examples (`Corpus.swift`:
+  NLEmbedding cosine retrieval + recency backfill; disk persistence only
+  when you opt in)
 
 no dependencies, plain swiftpm. relaunching always replaces the previous
 instance, so `open dist/gingergarlic.app` is always safe.

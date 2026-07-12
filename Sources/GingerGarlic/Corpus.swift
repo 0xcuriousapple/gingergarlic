@@ -8,11 +8,11 @@ struct CorpusEntry: Codable {
     var accepted: Bool
 }
 
-/// Every rewrite is logged as a draft→rewrite pair, and the most similar past
-/// pairs are retrieved at rewrite time (on-device sentence embeddings) as
-/// extra few-shot examples — so the tool gradually mirrors how this specific
-/// author writes. The corpus doubles as the training set for a future LoRA
-/// adapter.
+/// Draft→rewrite pairs used as few-shot examples so the tool mirrors how
+/// this specific author writes. Privacy default: pairs live in memory for
+/// the current session only. Writing them to disk (corpus.jsonl, the future
+/// LoRA training set) is strictly opt-in via the menu, because it means
+/// persisting the user's raw messages.
 actor Corpus {
     static let defaultURL = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".config/gingergarlic/corpus.jsonl")
@@ -20,21 +20,48 @@ actor Corpus {
     private let fileURL: URL
     private var entries: [CorpusEntry] = []
     private var vectors: [[Double]?] = []
+    /// Mirror of what's actually in the file — a subset of `entries` when
+    /// the user opted in mid-session.
+    private var persisted: [CorpusEntry] = []
+    private var persistToDisk: Bool
     private var embedder: NLEmbedding?
     private var loaded = false
 
-    init(fileURL: URL = Corpus.defaultURL) {
+    init(fileURL: URL = Corpus.defaultURL, persistToDisk: Bool = false) {
         self.fileURL = fileURL
+        self.persistToDisk = persistToDisk
     }
 
     // MARK: - Public API
+
+    func setPersist(_ enabled: Bool) {
+        ensureLoaded()
+        persistToDisk = enabled
+    }
+
+    func persistedCount() -> Int {
+        ensureLoaded()
+        return persisted.count
+    }
+
+    /// Deletes the on-disk history and everything learned this session.
+    func wipe() {
+        ensureLoaded()
+        entries.removeAll()
+        vectors.removeAll()
+        persisted.removeAll()
+        try? FileManager.default.removeItem(at: fileURL)
+    }
 
     func log(draft: String, rewrite: String) {
         ensureLoaded()
         let entry = CorpusEntry(ts: Date(), draft: draft, rewrite: rewrite, accepted: true)
         entries.append(entry)
         vectors.append(embed(draft))
-        appendToFile(entry)
+        if persistToDisk {
+            persisted.append(entry)
+            appendToFile(entry)
+        }
     }
 
     /// Called when the user hits undo: the last rewrite wasn't what they
@@ -44,7 +71,12 @@ actor Corpus {
         ensureLoaded()
         guard !entries.isEmpty else { return }
         entries[entries.count - 1].accepted = false
-        rewriteFile()
+        // Update the file only if that exact pair made it to disk.
+        if persistToDisk, let last = entries.last,
+           let index = persisted.lastIndex(where: { $0.ts == last.ts && $0.draft == last.draft }) {
+            persisted[index].accepted = false
+            rewriteFile()
+        }
     }
 
     func acceptedCount() -> Int {
@@ -100,6 +132,7 @@ actor Corpus {
         for line in text.split(separator: "\n") {
             guard let entry = try? decoder.decode(CorpusEntry.self, from: Data(line.utf8)) else { continue }
             entries.append(entry)
+            persisted.append(entry)
             vectors.append(embed(entry.draft))
         }
     }
@@ -143,7 +176,7 @@ actor Corpus {
 
     private func rewriteFile() {
         var data = Data()
-        for entry in entries {
+        for entry in persisted {
             guard let line = encodeLine(entry) else { continue }
             data.append(line)
             data.append(Data("\n".utf8))

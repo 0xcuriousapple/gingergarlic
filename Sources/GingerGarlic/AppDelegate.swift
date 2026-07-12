@@ -10,7 +10,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastRewrite: String?
     private var hotkeyDisplay = ""
     private var corpusCount = 0
+    private var savedCount = 0
+    private var profileDrafts = 0
     private var lastStatus = ""
+    private var recording = UserDefaults.standard.bool(forKey: Rewriter.recordingDefaultsKey)
 
     private let idleTitle = "🫚"
     private let busyTitle = "🫚…"
@@ -44,6 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshCorpusCount() {
         Task { @MainActor in
             corpusCount = await rewriter.corpus.acceptedCount()
+            savedCount = await rewriter.corpus.persistedCount()
+            profileDrafts = await rewriter.profile.draftCount()
             rebuildMenu(status: lastStatus)
         }
     }
@@ -66,12 +71,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusLine.isEnabled = false
         menu.addItem(statusLine)
 
-        let learning = Rewriter.usingAdapter
-            ? "learned: \(corpusCount) pairs + LoRA adapter"
-            : "learned: \(corpusCount) pairs"
+        var learning = "style profile: \(profileDrafts) drafts · session examples: \(corpusCount)"
+        if Rewriter.usingAdapter { learning += " · LoRA ✓" }
         let learningLine = NSMenuItem(title: learning, action: nil, keyEquivalent: "")
         learningLine.isEnabled = false
         menu.addItem(learningLine)
+        menu.addItem(.separator())
+
+        let record = NSMenuItem(
+            title: "save history for LoRA training",
+            action: #selector(toggleRecording), keyEquivalent: ""
+        )
+        record.state = recording ? .on : .off
+        menu.addItem(record)
+        if recording || savedCount > 0 {
+            menu.addItem(withTitle: "wipe recorded history (\(savedCount) pairs)…",
+                         action: #selector(wipeHistory), keyEquivalent: "")
+        }
         menu.addItem(.separator())
 
         if lastOriginal != nil {
@@ -164,5 +180,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func editHotkey() {
         _ = HotkeySpec.load() // ensure the file exists
         NSWorkspace.shared.open(HotkeySpec.configURL)
+    }
+
+    @objc private func toggleRecording() {
+        recording.toggle()
+        UserDefaults.standard.set(recording, forKey: Rewriter.recordingDefaultsKey)
+        Task { @MainActor in
+            await rewriter.corpus.setPersist(recording)
+            refreshCorpusCount()
+        }
+    }
+
+    @objc private func wipeHistory() {
+        let alert = NSAlert()
+        alert.messageText = "wipe recorded history?"
+        alert.informativeText = "deletes corpus.jsonl and everything learned this session. the aggregate style profile (no message content) is kept."
+        alert.addButton(withTitle: "wipe")
+        alert.addButton(withTitle: "cancel")
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Task { @MainActor in
+            await rewriter.corpus.wipe()
+            refreshCorpusCount()
+        }
     }
 }

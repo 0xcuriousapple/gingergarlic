@@ -12,7 +12,12 @@ final class Rewriter {
         }
     }
 
-    let corpus = Corpus()
+    static let recordingDefaultsKey = "recordCorpus"
+
+    let corpus = Corpus(
+        persistToDisk: UserDefaults.standard.bool(forKey: Rewriter.recordingDefaultsKey)
+    )
+    let profile = StyleProfile()
 
     /// A personal LoRA adapter trained with Apple's adapter toolkit, if the
     /// user has installed one (see scripts/export_training_data.py). Loaded
@@ -47,10 +52,13 @@ final class Rewriter {
         session.prewarm()
     }
 
-    /// Style prompt plus retrieved few-shot pairs from the user's own
-    /// accepted rewrites — the "learns from usage" part.
+    /// Style prompt + content-free habit profile + retrieved few-shot pairs
+    /// from this session's accepted rewrites — the "learns from usage" part.
     private func instructions(for text: String) async -> String {
         var instructions = Style.load()
+        if let habits = await profile.promptBlock() {
+            instructions += "\n\n" + habits
+        }
         let examples = await corpus.similar(to: text)
         if !examples.isEmpty {
             instructions += "\n\nMore examples of this author's accepted rewrites (match this voice):\n"
@@ -83,6 +91,7 @@ final class Rewriter {
                 .trimmingCharacters(in: .whitespaces)
         }
         let result = Self.restoreShorthand(original: text, output: output)
+        await profile.update(with: text)
         if result != text {
             await corpus.log(draft: text, rewrite: result)
         }
