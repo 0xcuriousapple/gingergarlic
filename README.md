@@ -10,6 +10,12 @@ trimmed, but still *you*. lowercase stays lowercase, "lmao" stays "lmao",
 runs 100% on-device using apple's foundation models (the apple intelligence
 model). no cloud, no api keys, no ollama, ~1s per rewrite.
 
+> **privacy, up front:** nothing ever leaves your mac, and by default
+> nothing you write is stored on disk either — not even locally. it learns
+> your style from aggregate, content-free stats (see [privacy](#privacy)).
+> the one exception is an opt-in toggle for people who want to train a
+> personal LoRA adapter, off unless you turn it on.
+
 ## flow
 
 1. type your draft: `so basically i was like thinking we could um do the thing tommow`
