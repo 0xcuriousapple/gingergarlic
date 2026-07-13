@@ -19,11 +19,16 @@ final class Rewriter {
     )
     let profile = StyleProfile()
 
+    /// Corpus retrieval loads an NLEmbedding model into memory. That's fine in
+    /// the Mac app and the iOS container app, but a keyboard extension has a
+    /// tight memory budget, so it sets this false and relies on the base
+    /// prompt + the cheap aggregate style profile instead.
+    var useRetrieval = true
+
     /// A personal LoRA adapter trained with Apple's adapter toolkit, if the
     /// user has installed one (see scripts/export_training_data.py). Loaded
     /// once at launch; relaunch after dropping the file in.
-    static let adapterURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/gingergarlic/adapter.fmadapter")
+    static let adapterURL = AppPaths.file("adapter.fmadapter")
 
     static let model: SystemLanguageModel = {
         if FileManager.default.fileExists(atPath: adapterURL.path),
@@ -76,7 +81,7 @@ final class Rewriter {
         if let habits = await profile.promptBlock() {
             instructions += "\n\n" + habits
         }
-        let examples = await corpus.similar(to: text)
+        let examples = useRetrieval ? await corpus.similar(to: text) : []
         if !examples.isEmpty {
             instructions += "\n\nMore examples of this author's accepted rewrites (match this voice):\n"
             for example in examples {

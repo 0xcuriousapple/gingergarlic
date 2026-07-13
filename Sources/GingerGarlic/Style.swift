@@ -1,9 +1,7 @@
 import Foundation
 
 enum Style {
-    static let fileURL: URL = FileManager.default
-        .homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/gingergarlic/style.md")
+    static let fileURL: URL = AppPaths.file("style.md")
 
     static let defaultInstructions = """
     You rewrite the user's rough draft message so it reads clearly, while keeping the author's voice.

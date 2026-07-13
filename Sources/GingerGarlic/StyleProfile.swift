@@ -6,8 +6,7 @@ import Foundation
 /// messages run, punctuation habits. The profile turns into a short "author
 /// habits" block in the prompt. No message is reconstructable from it.
 actor StyleProfile {
-    static let defaultURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/gingergarlic/profile.json")
+    static let defaultURL = AppPaths.file("profile.json")
 
     struct Stats: Codable {
         var drafts = 0

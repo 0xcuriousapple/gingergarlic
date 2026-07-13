@@ -1,10 +1,18 @@
+#if canImport(AppKit)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
+#endif
 
 /// Suggests spelling corrections using the system spellchecker — but does NOT
 /// apply them. The dictionary has no context, so it "corrects" names, brands,
 /// and acronyms it doesn't know (vpn->von, mullvad->mulled, aws->was). Instead
 /// of blindly rewriting the draft, we hand these as suggestions to the model,
 /// which sees the original word and decides whether each is a genuine typo.
+///
+/// Cross-platform: NSSpellChecker on macOS, UITextChecker on iOS. Both expose
+/// the same two primitives — find the next misspelled word, and offer guesses
+/// for it — so the suggest-and-rerank logic below is shared.
 enum SpellFix {
     struct Suggestion {
         let word: String
@@ -22,31 +30,23 @@ enum SpellFix {
     @MainActor
     static func suggestions(for text: String) -> [Suggestion] {
         let protected = slang.union(Rewriter.protectedShorthand)
-        let checker = NSSpellChecker.shared
-        checker.automaticallyIdentifiesLanguages = false
-        _ = checker.setLanguage("en")
+        let ns = text as NSString
+        let backend = Backend(text: text)
 
         var suggestions: [Suggestion] = []
         var seen = Set<String>()
         var offset = 0
-        while offset < (text as NSString).length {
-            var wordCount = 0
+        while offset < ns.length {
             // wrap: false is load-bearing — the wrapping variant re-finds
             // flagged-but-protected words (like "rn") forever.
-            let range = checker.checkSpelling(
-                of: text, startingAt: offset, language: "en", wrap: false,
-                inSpellDocumentWithTag: 0, wordCount: &wordCount
-            )
+            let range = backend.nextMisspelling(from: offset)
             if range.location == NSNotFound || range.location < offset { break }
-            let word = (text as NSString).substring(with: range)
+            let word = ns.substring(with: range)
             offset = range.location + range.length
             let lower = word.lowercased()
             if protected.contains(lower) || seen.contains(lower) { continue }
             if word.rangeOfCharacter(from: .decimalDigits) != nil { continue }
-            guard let guesses = checker.guesses(
-                forWordRange: range, in: text, language: "en",
-                inSpellDocumentWithTag: 0
-            ), let top = guesses.first else { continue }
+            guard let guesses = backend.guesses(for: range), let top = guesses.first else { continue }
             // The top guess is frequency-ranked but context-blind and can be
             // a different word than intended ("depoly" -> "deeply"). A
             // candidate one edit away (usually a transposition) is almost
@@ -62,6 +62,52 @@ enum SpellFix {
             suggestions.append(Suggestion(word: lower, guess: guess.lowercased()))
         }
         return suggestions
+    }
+
+    /// Thin wrapper over the platform spellchecker exposing just the two
+    /// primitives SpellFix needs.
+    @MainActor
+    private struct Backend {
+        let text: String
+        let fullRange: NSRange
+
+        #if canImport(UIKit)
+        let checker = UITextChecker()
+        #endif
+
+        init(text: String) {
+            self.text = text
+            self.fullRange = NSRange(location: 0, length: (text as NSString).length)
+            #if canImport(AppKit)
+            NSSpellChecker.shared.automaticallyIdentifiesLanguages = false
+            _ = NSSpellChecker.shared.setLanguage("en")
+            #endif
+        }
+
+        func nextMisspelling(from offset: Int) -> NSRange {
+            #if canImport(AppKit)
+            var wordCount = 0
+            return NSSpellChecker.shared.checkSpelling(
+                of: text, startingAt: offset, language: "en", wrap: false,
+                inSpellDocumentWithTag: 0, wordCount: &wordCount
+            )
+            #elseif canImport(UIKit)
+            return checker.rangeOfMisspelledWord(
+                in: text, range: fullRange, startingAt: offset,
+                wrap: false, language: "en"
+            )
+            #endif
+        }
+
+        func guesses(for range: NSRange) -> [String]? {
+            #if canImport(AppKit)
+            return NSSpellChecker.shared.guesses(
+                forWordRange: range, in: text, language: "en", inSpellDocumentWithTag: 0
+            )
+            #elseif canImport(UIKit)
+            return checker.guesses(forWordRange: range, in: text, language: "en")
+            #endif
+        }
     }
 
     /// Damerau-Levenshtein: edit distance where a transposition counts as

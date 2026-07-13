@@ -14,8 +14,7 @@ struct CorpusEntry: Codable {
 /// LoRA training set) is strictly opt-in via the menu, because it means
 /// persisting the user's raw messages.
 actor Corpus {
-    static let defaultURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/gingergarlic/corpus.jsonl")
+    static let defaultURL = AppPaths.file("corpus.jsonl")
 
     private let fileURL: URL
     private var entries: [CorpusEntry] = []

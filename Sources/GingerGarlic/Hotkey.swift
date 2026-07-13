@@ -6,9 +6,7 @@ struct HotkeySpec {
     let carbonModifiers: UInt32
     let display: String
 
-    static let configURL: URL = FileManager.default
-        .homeDirectoryForCurrentUser
-        .appendingPathComponent(".config/gingergarlic/hotkey.txt")
+    static let configURL: URL = AppPaths.file("hotkey.txt")
 
     static let defaultSpec = "ctrl+opt+cmd+g"
 

@@ -2,3 +2,9 @@
 dist/
 .DS_Store
 .claude/
+
+# xcode (ios project is assembled locally per ios/SETUP.md)
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+DerivedData/

@@ -179,6 +179,17 @@ settings and wait for the on-device model download to finish.
 whether the hotkey registered, accessibility is granted, and what went wrong
 last.
 
+## iphone
+
+there's an iOS version too — a companion keyboard that rewrites your text in
+place using the same on-device model and core logic. you type normally,
+switch to the gingergarlic keyboard, tap **✨ fix**. needs an iphone 15 pro or
+newer with apple intelligence on.
+
+the shared core (`Rewriter`, `SpellFix`, `Style`, `StyleProfile`, `Corpus`,
+`Paths`) is cross-platform swift; the mac app and the ios keyboard both build
+on it. setup + xcode assembly steps are in [ios/SETUP.md](ios/SETUP.md).
+
 ## roadmap
 
 - ~~learn from real usage: log accepted rewrites, build a personal corpus~~ ✅
