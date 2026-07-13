@@ -34,9 +34,15 @@ model). no cloud, no api keys, no ollama, ~1s per rewrite.
 ```sh
 git clone https://github.com/0xcuriousapple/gingergarlic.git
 cd gingergarlic
+./scripts/setup-signing.sh   # once: stable local signing, see below
 ./make-app.sh
 open dist/gingergarlic.app
 ```
+
+`setup-signing.sh` creates a self-signed code-signing identity so macOS keeps
+the Accessibility grant across rebuilds. skip it and the app still works, but
+you'll have to re-grant Accessibility every single build (ad-hoc signatures
+change each time). run it once; it's a no-op after that.
 
 a HUD pill confirms it's running and shows the hotkey. look for 🫚 in the
 menu bar (if you don't see it, the notch is probably hiding it — the app
@@ -159,18 +165,18 @@ instance, so `open dist/gingergarlic.app` is always safe.
 
 ## troubleshooting
 
-**it keeps asking for accessibility even though the toggle is on** — the app
-is ad-hoc signed, so every rebuild invalidates the grant (the toggle points
-at the old binary). fix:
+**it keeps asking for accessibility even though the toggle is on** — you're
+on an ad-hoc signature (didn't run `setup-signing.sh`), so each rebuild
+changes the binary hash and invalidates the grant. permanent fix:
 
 ```sh
-tccutil reset Accessibility xyz.curiousapple.gingergarlic
-open dist/gingergarlic.app   # re-grant when prompted
+./scripts/setup-signing.sh                                # once
+tccutil reset Accessibility xyz.curiousapple.gingergarlic # clear the stale grant
+./make-app.sh && open dist/gingergarlic.app               # re-grant once — sticks after this
 ```
 
-permanent fix: get a free apple development cert (xcode → settings →
-accounts → add your apple id) and swap `-s -` in `make-app.sh` for your
-identity.
+after this the grant survives rebuilds, because it's keyed to the stable
+signing identity instead of the per-build hash.
 
 **"model unavailable" in the menu** — enable apple intelligence in system
 settings and wait for the on-device model download to finish.
